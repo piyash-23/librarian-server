@@ -42,6 +42,29 @@ const run = async () => {
     await client.connect();
     const librarian = client.db("librarian");
     const booksColl = librarian.collection("booksCollection");
+    const cartColl = librarian.collection("cartCollection");
+    const userColl = librarian.collection("userCollection");
+    const librarianColl = librarian.collection("librarianCollection");
+    // librarian related apis
+    // post librarian
+    app.post("/librarian", async (req, res) => {
+      const librarian = req.body;
+      librarian.status = "pending";
+      librarian.createdAt = new Date();
+      const query = { email: req.body.email };
+      const isExisted = await librarianColl.findOne(query);
+      if (isExisted) {
+        return res.send({ message: "data is already axisted" });
+      }
+      const result = await librarianColl.insertOne(librarian);
+      res.send({ message: "librarian posted" }, result);
+    });
+    // get librarians
+    app.get("/librarian", async (req, res) => {
+      const cursor = librarianColl.find();
+      const result = await cursor.toArray();
+      res.send(result);
+    });
     // get books
     app.get("/books", async (req, res) => {
       const query = {};
@@ -97,6 +120,27 @@ const run = async () => {
       const query = { _id: new ObjectId(id) };
       const result = await booksColl.deleteOne(query);
       res.send({ message: "item deleted" }, result);
+    });
+
+    // user related apis
+    // post user
+    app.post("/user", async (req, res) => {
+      const user = req.body;
+      user.role = "user";
+      user.createdAt = new Date();
+      const query = { email: req.body.email };
+      const existedUser = await userColl.findOne(query);
+      if (existedUser) {
+        return res.send({ message: "user already existed" });
+      }
+      const result = await userColl.insertOne(user);
+      res.send({ message: "user create" }, result);
+    });
+    // get users
+    app.get("/user", async (req, res) => {
+      const cursor = userColl.find();
+      const result = await cursor.toArray();
+      res.send(result);
     });
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
