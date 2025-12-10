@@ -21,6 +21,21 @@ app.get("/", (req, res) => {
   res.send("Librarian Server running");
 });
 
+const filteredUpadateData = (data) => {
+  const filteredData = {};
+  for (const key in data) {
+    if (
+      data[key] !== "" &&
+      data[key] !== null &&
+      data[key] !== undefined &&
+      key !== "_id"
+    ) {
+      filteredData[key] = data[key];
+    }
+  }
+  return filteredData;
+};
+
 const run = async () => {
   try {
     // Connect the client to the server	(optional starting in v4.7)
@@ -30,7 +45,7 @@ const run = async () => {
     // get books
     app.get("/books", async (req, res) => {
       const query = {};
-      console.log(req.query);
+      // console.log(req.query);
       const { email } = req.query;
       if (email) {
         query.sellerEmail = email;
@@ -57,20 +72,31 @@ const run = async () => {
     app.patch("/books/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
-      const updateBooks = req.body;
+      const updateBooks = filteredUpadateData(req.body);
+      if (Object.keys(updateBooks).length === 0) {
+        return res.status(400).send({ message: "No field is updated" });
+      }
       updateBooks.updatedAt = new Date();
       const update = {
         $set: updateBooks,
       };
-      const result = await booksColl.updateOne(query, update);
-      res.send(result);
+      try {
+        const result = await booksColl.updateOne(query, update);
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ message: "No book found" });
+        }
+        res.send({ message: "book updated" }, result);
+      } catch (error) {
+        res.status(500).send({ message: `update error: ${error}` });
+      }
     });
     // delete books
     app.delete("/books/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await booksColl.deleteOne(query);
-      res.send(result);
+      res.send({ message: "item deleted" }, result);
     });
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
