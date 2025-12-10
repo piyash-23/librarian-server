@@ -45,6 +45,27 @@ const run = async () => {
     const cartColl = librarian.collection("cartCollection");
     const userColl = librarian.collection("userCollection");
     const librarianColl = librarian.collection("librarianCollection");
+    // cart related apis
+    // cart add
+    app.post("/carts", async (req, res) => {
+      const cart = req.body;
+      cart.paymentStatus = "unpaid";
+      cart.addedAt = new Date();
+      const result = await cartColl.insertOne(cart);
+      res.send({ message: "added to cart" }, result);
+    });
+    // find cart
+    app.get("/carts", async (req, res) => {
+      const query = {};
+      const { email } = req.query;
+      if (email) {
+        query.email = email;
+      }
+      const cursor = cartColl.find(query);
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
     // librarian related apis
     // post librarian
     app.post("/librarian", async (req, res) => {
@@ -59,9 +80,46 @@ const run = async () => {
       const result = await librarianColl.insertOne(librarian);
       res.send({ message: "librarian posted" }, result);
     });
+    // delete librarian
+    app.delete("/librarian/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = librarianColl.deleteOne(query);
+      res.send({ message: "deleted" }, result);
+    });
+    // update librarian
+    app.patch("/librarian/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const librarian = req.body;
+      const status = librarian.status;
+      librarian.updatedAt = new Date();
+      const updatedInfo = {
+        $set: {
+          status: status,
+        },
+      };
+      const result = await librarianColl.updateOne(query, updatedInfo);
+      if (status === "approved") {
+        const email = req.body.email;
+        const userQuery = { email };
+        const updateUser = {
+          $set: {
+            role: "librarian",
+          },
+        };
+        const userResult = await userColl.updateOne(userQuery, updateUser);
+      }
+      res.send({ message: "updated" }, result);
+    });
     // get librarians
     app.get("/librarian", async (req, res) => {
-      const cursor = librarianColl.find();
+      const query = {};
+      const { status } = req.query;
+      if (status) {
+        query.status = status;
+      }
+      const cursor = librarianColl.find(query);
       const result = await cursor.toArray();
       res.send(result);
     });
