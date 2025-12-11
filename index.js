@@ -9,6 +9,8 @@ app.use(express.json());
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const uri = `mongodb+srv://${process.env.USER}:${process.env.PASS}@cluster0.6ecqvku.mongodb.net/?appName=Cluster0`;
 
+const stripe = require("stripe")(`${process.env.STRIPE_KEY}`);
+
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -44,6 +46,7 @@ const run = async () => {
     const booksColl = librarian.collection("booksCollection");
     const cartColl = librarian.collection("cartCollection");
     const userColl = librarian.collection("userCollection");
+    const paymentColl = librarian.collection("paymentCollection");
     const librarianColl = librarian.collection("librarianCollection");
     // cart related apis
     // cart add
@@ -51,21 +54,36 @@ const run = async () => {
       const cart = req.body;
       cart.paymentStatus = "unpaid";
       cart.addedAt = new Date();
+      cart.orderStatus = "pending";
       const result = await cartColl.insertOne(cart);
       res.send({ message: "added to cart" }, result);
     });
     // find cart
     app.get("/carts", async (req, res) => {
       const query = {};
-      const { email } = req.query;
-      if (email) {
-        query.email = email;
+      const { buyerEmail, sellerEmail } = req.query;
+      console.log(buyerEmail, sellerEmail);
+      if (buyerEmail) {
+        query.buyerEmail = buyerEmail;
       }
+      if (sellerEmail) {
+        query.sellerEmail = sellerEmail;
+      }
+
+      // if (email) {
+      //   query.$or = [{ buyeremail: email }, { sellerEmail: email }];
+      // }
       const cursor = cartColl.find(query);
       const result = await cursor.toArray();
       res.send(result);
     });
-
+    // delete cart
+    app.delete("/carts/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await cartColl.deleteOne(query);
+      res.send({ message: "deleted cart" }, result);
+    });
     // librarian related apis
     // post librarian
     app.post("/librarian", async (req, res) => {
@@ -197,6 +215,80 @@ const run = async () => {
     // get users
     app.get("/user", async (req, res) => {
       const cursor = userColl.find();
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+    // payment related apis
+    app.post("/create-checkout-session", async (req, res) => {
+      const paymentInfo = req.body;
+      const amount = parseInt(paymentInfo.price) * 100;
+      const session = await stripe.checkout.sessions.create({
+        line_items: [
+          {
+            // Provide the exact Price ID (for example, price_1234) of the product you want to sell
+            price_data: {
+              currency: "BDT",
+              product_data: {
+                name: `Please pay for ${paymentInfo.title}`,
+              },
+              unit_amount: amount,
+            },
+            quantity: 1,
+          },
+        ],
+        customer_email: paymentInfo.buyerEmail,
+        metadata: {
+          productId: paymentInfo.bookId,
+          sellerEmail: paymentInfo.sellerEmail,
+          customer_email: paymentInfo.buyerEmail,
+          bookTitle: paymentInfo.title,
+        },
+        mode: "payment",
+        success_url: `${process.env.SITE_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.SITE_DOMAIN}/payment-canceled`,
+      });
+      // console.log(session);
+      res.send({ url: session.url });
+    });
+    // verify payment
+    app.patch("/payment-success", async (req, res) => {
+      const sessionId = req.query.session_id;
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      console.log("session retrieved", session);
+      if (session.payment_status === "paid") {
+        const id = session.metadata.productId;
+        const query = { _id: new ObjectId(id) };
+        const update = {
+          $set: {
+            paymentStatus: "paid",
+          },
+        };
+        const result = await cartColl.updateOne(query, update);
+        res.send(result);
+      }
+      const payment = {
+        sellerEmail: session.metadata.sellerEmail,
+        buyerEmail: session.metadata.customer_email,
+        productId: session.metadata.productId,
+        bookTitle: session.metadata.bookTitle,
+        transactionId: session.payment_intent,
+        price: session.amount_total / 100,
+        paymentStatus: session.payment_status,
+      };
+      if (session.payment_status === "paid") {
+        const result = await paymentColl.insertOne(payment);
+        res.send({ success: true });
+      }
+      res.send({ success: true });
+    });
+
+    app.get("/payments", async (req, res) => {
+      const query = {};
+      const { email } = req.query;
+      if (email) {
+        query.$or = [{ buyerEmail: email }, { sellerEmail: email }];
+      }
+      const cursor = paymentColl.find(query);
       const result = await cursor.toArray();
       res.send(result);
     });
