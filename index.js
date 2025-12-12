@@ -62,7 +62,7 @@ const run = async () => {
     app.get("/carts", async (req, res) => {
       const query = {};
       const { buyerEmail, sellerEmail } = req.query;
-      console.log(buyerEmail, sellerEmail);
+      // console.log(buyerEmail, sellerEmail);
       if (buyerEmail) {
         query.buyerEmail = buyerEmail;
       }
@@ -76,6 +76,18 @@ const run = async () => {
       const cursor = cartColl.find(query);
       const result = await cursor.toArray();
       res.send(result);
+    });
+    app.patch("/carts/:id", async (req, res) => {
+      const id = req.params.id;
+      const orderStatus = req.body.orderStatus;
+      const query = { _id: new ObjectId(id) };
+      const updateCart = {
+        $set: {
+          orderStatus: orderStatus,
+        },
+      };
+      const result = await cartColl.updateOne(query, updateCart);
+      res.send({ message: "shipped" }, result);
     });
     // delete cart
     app.delete("/carts/:id", async (req, res) => {
@@ -254,18 +266,8 @@ const run = async () => {
     app.patch("/payment-success", async (req, res) => {
       const sessionId = req.query.session_id;
       const session = await stripe.checkout.sessions.retrieve(sessionId);
+      const transactionId = session.payment_intent;
       console.log("session retrieved", session);
-      if (session.payment_status === "paid") {
-        const id = session.metadata.productId;
-        const query = { _id: new ObjectId(id) };
-        const update = {
-          $set: {
-            paymentStatus: "paid",
-          },
-        };
-        const result = await cartColl.updateOne(query, update);
-        res.send(result);
-      }
       const payment = {
         sellerEmail: session.metadata.sellerEmail,
         buyerEmail: session.metadata.customer_email,
@@ -276,17 +278,35 @@ const run = async () => {
         paymentStatus: session.payment_status,
       };
       if (session.payment_status === "paid") {
-        const result = await paymentColl.insertOne(payment);
-        res.send({ success: true });
+        const id = session.metadata.productId;
+        const query = { _id: new ObjectId(id) };
+        const update = {
+          $set: {
+            paymentStatus: "paid",
+          },
+        };
+        const result = await cartColl.updateOne(query, update);
+        res.send(result);
+        const queryForPayment = { transactionId: transactionId };
+        const isExistPayment = await paymentColl.findOne(queryForPayment);
+        if (!isExistPayment) {
+          const resultPayment = await paymentColl.insertOne(payment);
+
+          res.send(resultPayment);
+        }
       }
       res.send({ success: true });
     });
 
     app.get("/payments", async (req, res) => {
       const query = {};
-      const { email } = req.query;
-      if (email) {
-        query.$or = [{ buyerEmail: email }, { sellerEmail: email }];
+      const { buyerEmail, sellerEmail } = req.query;
+      console.log(buyerEmail, sellerEmail);
+      if (buyerEmail) {
+        query.buyerEmail = buyerEmail;
+      }
+      if (sellerEmail) {
+        query.sellerEmail = sellerEmail;
       }
       const cursor = paymentColl.find(query);
       const result = await cursor.toArray();
