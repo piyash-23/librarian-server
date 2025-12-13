@@ -74,6 +74,16 @@ const run = async () => {
     const userColl = librarian.collection("userCollection");
     const paymentColl = librarian.collection("paymentCollection");
     const librarianColl = librarian.collection("librarianCollection");
+    // middle
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded_email;
+      const query = { email };
+      const user = await userColl.findOne(query);
+      if (!user || user.role !== "admin") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
     // cart related apis
     // cart add
     app.post("/carts", async (req, res) => {
@@ -144,30 +154,35 @@ const run = async () => {
       res.send({ message: "deleted" }, result);
     });
     // update librarian
-    app.patch("/librarian/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const librarian = req.body;
-      const status = librarian.status;
-      librarian.updatedAt = new Date();
-      const updatedInfo = {
-        $set: {
-          status: status,
-        },
-      };
-      const result = await librarianColl.updateOne(query, updatedInfo);
-      if (status === "approved") {
-        const email = req.body.email;
-        const userQuery = { email };
-        const updateUser = {
+    app.patch(
+      "/librarian/:id",
+      verifyFireBase,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const librarian = req.body;
+        const status = librarian.status;
+        librarian.updatedAt = new Date();
+        const updatedInfo = {
           $set: {
-            role: "librarian",
+            status: status,
           },
         };
-        const userResult = await userColl.updateOne(userQuery, updateUser);
+        const result = await librarianColl.updateOne(query, updatedInfo);
+        if (status === "approved") {
+          const email = req.body.email;
+          const userQuery = { email };
+          const updateUser = {
+            $set: {
+              role: "librarian",
+            },
+          };
+          const userResult = await userColl.updateOne(userQuery, updateUser);
+        }
+        res.send({ message: "updated" }, result);
       }
-      res.send({ message: "updated" }, result);
-    });
+    );
     // get librarians
     app.get("/librarian", async (req, res) => {
       const query = {};
@@ -251,7 +266,7 @@ const run = async () => {
       res.send({ message: "user create" }, result);
     });
     // get users
-    app.get("/user", async (req, res) => {
+    app.get("/user", verifyFireBase, async (req, res) => {
       const cursor = userColl.find();
       const result = await cursor.toArray();
       res.send(result);
@@ -265,15 +280,20 @@ const run = async () => {
       res.send({ role: user?.role || "user" });
     });
     // update users
-    app.patch("/user/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const user = req.body;
-      const role = user.role;
-      const updateInfo = { $set: { role: role } };
-      const result = await userColl.updateOne(query, updateInfo);
-      res.send({ message: "updated" }, result);
-    });
+    app.patch(
+      "/user/:id/role",
+      verifyFireBase,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const user = req.body;
+        const role = user.role;
+        const updateInfo = { $set: { role: role } };
+        const result = await userColl.updateOne(query, updateInfo);
+        res.send({ message: "updated" }, result);
+      }
+    );
     // payment related apis
     app.post("/create-checkout-session", async (req, res) => {
       const paymentInfo = req.body;
