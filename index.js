@@ -3,10 +3,36 @@ require("dotenv").config();
 const app = express();
 const cors = require("cors");
 const PORT = process.env.PORT || 3000;
+
+const admin = require("firebase-admin");
+
+const serviceAccount = require("./librarian-firebase-adminsdk.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
 app.use(cors());
 app.use(express.json());
 
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+
+const verifyFireBase = async (req, res, next) => {
+  const token = req.headers?.authorization;
+  if (!token) {
+    return res.status(401).send({ message: "Unauthorized Access" });
+  }
+  try {
+    const idToken = token.split(" ")[1];
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    // console.log("decoded in the token", decoded);
+    req.decoded_email = decoded.email;
+    next();
+  } catch (error) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+};
+
 const uri = `mongodb+srv://${process.env.USER}:${process.env.PASS}@cluster0.6ecqvku.mongodb.net/?appName=Cluster0`;
 
 const stripe = require("stripe")(`${process.env.STRIPE_KEY}`);
@@ -161,7 +187,7 @@ const run = async () => {
       if (email) {
         query.sellerEmail = email;
       }
-      const cursor = booksColl.find(query);
+      const cursor = booksColl.find(query).sort({ createdAt: -1 });
       const result = await cursor.toArray();
       res.send(result);
     });
@@ -229,6 +255,24 @@ const run = async () => {
       const cursor = userColl.find();
       const result = await cursor.toArray();
       res.send(result);
+    });
+    // single user
+    app.get("/user/:id", async (req, res) => {});
+    app.get("/user/:email/role", async (req, res) => {
+      const email = req.params.email;
+      const query = { email };
+      const user = await userColl.findOne(query);
+      res.send({ role: user?.role || "user" });
+    });
+    // update users
+    app.patch("/user/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const user = req.body;
+      const role = user.role;
+      const updateInfo = { $set: { role: role } };
+      const result = await userColl.updateOne(query, updateInfo);
+      res.send({ message: "updated" }, result);
     });
     // payment related apis
     app.post("/create-checkout-session", async (req, res) => {
@@ -298,16 +342,23 @@ const run = async () => {
       res.send({ success: true });
     });
 
-    app.get("/payments", async (req, res) => {
+    app.get("/payments", verifyFireBase, async (req, res) => {
       const query = {};
       const { buyerEmail, sellerEmail } = req.query;
-      console.log(buyerEmail, sellerEmail);
+      // console.log(buyerEmail, sellerEmail);
       if (buyerEmail) {
         query.buyerEmail = buyerEmail;
+        if (buyerEmail !== req.decoded_email) {
+          return res.status(403).send({ message: "forbidden" });
+        }
       }
       if (sellerEmail) {
         query.sellerEmail = sellerEmail;
+        if (sellerEmail !== req.decoded_email) {
+          return res.status(403).send({ message: "forbidden" });
+        }
       }
+      // console.log("headers:", req.headers);
       const cursor = paymentColl.find(query);
       const result = await cursor.toArray();
       res.send(result);
