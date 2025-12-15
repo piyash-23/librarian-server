@@ -109,7 +109,7 @@ const run = async () => {
       // if (email) {
       //   query.$or = [{ buyeremail: email }, { sellerEmail: email }];
       // }
-      const cursor = cartColl.find(query);
+      const cursor = cartColl.find(query).sort({ addedAt: -1 });
       const result = await cursor.toArray();
       res.send(result);
     });
@@ -320,8 +320,8 @@ const run = async () => {
           bookTitle: paymentInfo.title,
         },
         mode: "payment",
-        success_url: `${process.env.SITE_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.SITE_DOMAIN}/payment-canceled`,
+        success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-canceled`,
       });
       // console.log(session);
       res.send({ url: session.url });
